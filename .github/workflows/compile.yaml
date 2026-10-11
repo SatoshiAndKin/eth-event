@@ -22,10 +22,10 @@ jobs:
           # Check out the PR branch
           ref: ${{ github.head_ref }}
 
-      - name: Set up Python 3.13
+      - name: Set up Python 3.15
         uses: actions/setup-python@v5
         with:
-          python-version: "3.13"
+          python-version: "3.15"
 
       - name: Delete existing build files
         run: rm -r build
@@ -33,6 +33,17 @@ jobs:
       - name: Install Eth Event
         run: pip install .
           
+      - name: Verify installed Python 3.15 extension
+        run: |
+          cd "$RUNNER_TEMP"
+          python - <<'PY'
+          import importlib
+          import importlib.machinery
+          module = importlib.import_module("eth_event.main")
+          assert isinstance(module.__loader__, importlib.machinery.ExtensionFileLoader), module.__file__
+          print(module.__file__)
+          PY
+
       - name: Normalize C files for diffchecking
         # This makes it much easier to diffcheck changes in the C files
         run: |
