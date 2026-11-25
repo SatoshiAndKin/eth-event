@@ -11,87 +11,30 @@ name: main workflow
 
 env:
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-
-  linting:
-    runs-on: ubuntu-latest
-
-    steps:
-    - uses: actions/checkout@v4
-
-    - name: Setup Python 3.10
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.10'
-        cache: pip
-        cache-dependency-path: |
-          setup.py
-          setup.cfg
-          pyproject.toml
-          tox.ini
-          requirements.txt
-          requirements-dev.in
-          requirements-dev.txt
-
-    - name: Cache tox environment
-      uses: actions/cache@v4
-      with:
-        path: .tox
-        key: ${{ runner.os }}-linting-${{ hashFiles('pyproject.toml', 'setup.py', 'setup.cfg', 'pyproject.toml', 'tox.ini', 'requirements.txt', 'requirements-dev.in', 'requirements-dev.txt') }}
-        save-always: ${{ env.TOX_RECREATE_FLAG == '-r' }}
-
-    - name: Install Tox
-      run: pip install tox
-
-    - name: Run Tox
-      run: tox -e lint ${{ env.TOX_RECREATE_FLAG }}
-
   core:
     name: core (${{ matrix.os }}, 3.${{ matrix.pyminor }}, ${{ matrix.architecture }})
     runs-on: ${{ matrix.os }}
     env:
       TOX_RECREATE_FLAG: ${{ github.event_name == 'schedule' && '-r' || '' }}
-      IS_UBUNTU_32BIT: ${{ matrix.os == 'ubuntu-latest' && matrix.architecture == 'x86' }}
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, ubuntu-latest, macos-latest]
+        os: [windows-latest, macos-latest]
         pyminor: [ "10", "11", "12", "13", "14", "14t" ]
         architecture: [x64, x86]
         exclude:
-          # Exclude x86 (32-bit) builds for ubuntu, which blows up when trying to install
-          # rust toolchain thing for some dev dependency that eth-event doesn't depend on.
-          # There is handling throughout this file for x86 ubuntu so we can reenable this
-          # later without breaking things
-          - os: ubuntu-latest
-            architecture: x86
           # Exclude x86 (32-bit) builds for macos, which doesn't support 32-bit at all
           - os: macos-latest
             architecture: x86
 
     steps:
     - uses: actions/checkout@v4
-    
-    # Use i386/python Docker for all 32-bit Ubuntu jobs (TODO cache some of this)
-    - name: Run job in 32-bit Ubuntu Docker container
-      if: ${{ env.IS_UBUNTU_32BIT == 'true' }}
-      uses: addnab/docker-run-action@v3
-      with:
-        image: i386/python:3.${{ matrix.pyminor }}
-        shell: bash
-        options: -v ${{ github.workspace }}:/workspace -w /workspace
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install tox
-          python -m tox -e py3${{ matrix.pyminor }} ${{ env.TOX_RECREATE_FLAG }}
-      # There are no prebuilt 32-bit freethreaded Python containers at the time of this commit, but
-      # we will keep these runners so they will activate on their own whenever such containers exist
-      continue-on-error: ${{ matrix.pyminor == '13t' || matrix.pyminor == '14t' }}
 
     # No architecture specified for MacOS
     - name: Set up Python (macos)
@@ -109,9 +52,9 @@ jobs:
           requirements-dev.in
           requirements-dev.txt
 
-    # All other builds (64-bit Linux, 32-bit and 64-bit Windows)
+    # Windows uses both x86 and x64 Python.
     - name: Set up Python
-      if: ${{ matrix.os != 'macos-latest' && env.IS_UBUNTU_32BIT != 'true' }}
+      if: ${{ matrix.os == 'windows-latest' }}
       uses: actions/setup-python@v5
       with:
         python-version: 3.${{ matrix.pyminor }}
@@ -127,11 +70,9 @@ jobs:
           requirements-dev.txt
 
     - name: Install Tox
-      if: ${{ env.IS_UBUNTU_32BIT != 'true' }}
       run: pip install -U tox
 
     - name: Cache tox environment
-      if: ${{ env.IS_UBUNTU_32BIT != 'true' }}
       uses: actions/cache@v4
       with:
         path: .tox
@@ -139,7 +80,6 @@ jobs:
         save-always: ${{ env.TOX_RECREATE_FLAG == '-r' }}
 
     - name: Run Tox
-      if: ${{ env.IS_UBUNTU_32BIT != 'true' }}
       run: tox -e py3${{ matrix.pyminor }} ${{ env.TOX_RECREATE_FLAG }}
 
     - name: Upload coverage to Codecov
@@ -148,3 +88,8 @@ jobs:
       with:
         file: ./coverage.xml
         fail_ci_if_error: false
+
+  linux:
+    permissions:
+      contents: read
+    uses: SatoshiAndKin/eth-event/.github/workflows/main-reviewed-linux.yaml@ede8dbd1ce7a923f00a6d3b53a1021267fb6d7fe
